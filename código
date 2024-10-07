@@ -1,0 +1,216 @@
+# %%
+import numpy as np
+import random
+import scipy
+import os
+import cv2
+import matplotlib.pyplot as plt
+from matplotlib import pyplot
+import tensorflow as tf
+import pickle
+import tensorflow_datasets as tfds
+from tensorflow.python import keras
+from tensorflow.python.keras import regularizers, layers, models
+from tensorflow.python.keras.models import Sequential
+from tensorflow.python.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from keras.src.legacy.preprocessing.image import ImageDataGenerator
+
+from tensorflow.python.keras.engine import data_adapter
+
+def _is_distributed_dataset(ds):
+    return isinstance(ds, data_adapter.input_lib.DistributedDatasetSpec)
+
+data_adapter._is_distributed_dataset = _is_distributed_dataset
+
+
+# %% [markdown]
+# Apresentação do diretório e das categorias
+
+# %%
+DIRECTORY = r"C:\Users\User\Desktop\Again\dogscats\train"
+CATEGORIES = ['cats','dogs']
+
+# %% [markdown]
+# Agrupar Diretório+Categoria + Leitura em array
+
+# %%
+data = []
+
+for category in CATEGORIES:
+    folder = os.path.join(DIRECTORY, category)
+    label = CATEGORIES.index(category)
+    for image in os.listdir(folder):
+        image_path = os.path.join(folder, image)
+        image_array = cv2.imread(image_path)
+        image_array = cv2.resize(image_array,(100,100))
+        data.append([image_array, label])
+
+        
+
+# %% [markdown]
+# Embaralhar os dados obtidos
+
+# %%
+random.shuffle(data)
+
+# %% [markdown]
+# Armazenar dados em Arrays e reduzí-los
+
+# %%
+x = []
+y = []
+
+for features, labels in data:
+    x.append(features)
+    y.append(labels)
+
+x = np.array(x)
+y = np.array(y)
+
+x = x/255
+
+# %%
+print(x.shape)
+print(y.shape)
+
+# %% [markdown]
+# Salvar os arrays se for de interesse
+
+# %%
+pickle.dump(x, open('x.pkl', 'wb'))
+pickle.dump(y, open('y.pkl', 'wb'))
+
+# %% [markdown]
+# Formação da rede convoluta neural e da rede profunda
+
+# %%
+network = models.Sequential()
+
+
+network.add(layers.Conv2D(128,(3,3),input_shape=(100,100,3)))
+network.add(layers.LeakyReLU())
+network.add(layers.MaxPooling2D(pool_size=(2,2)))
+network.add(layers.Conv2D(64,(3,3)))
+network.add(layers.LeakyReLU())
+network.add(layers.MaxPooling2D(pool_size=(2,2)))
+network.add(layers.Conv2D(32,(3,3)))
+network.add(layers.LeakyReLU())
+network.add(layers.MaxPooling2D(pool_size=(2,2)))
+network.add(layers.Flatten())
+network.add(layers.Dropout(0.5))
+network.add(layers.Dense(128,  kernel_regularizer=regularizers.l2(0.001)))
+network.add(layers.LeakyReLU())
+network.add(layers.Dense(1,activation='sigmoid'))
+
+network.compile(optimizer='rmsprop',loss='binary_crossentropy',metrics=['accuracy'])
+
+
+# %% [markdown]
+# Geração de variação de imagens
+
+# %%
+datagen = ImageDataGenerator(
+    rotation_range=40,        
+    width_shift_range=0.2,    
+    height_shift_range=0.2,   
+    shear_range=0.2,          
+    zoom_range=0.2,           
+    horizontal_flip=True,     
+    fill_mode='nearest'
+)
+
+datagen.fit(x)
+
+# %% [markdown]
+# Criação de um banco de validação para ver a eficácia do sistema fora do banco de dados inicial
+
+# %%
+validation = []
+val_dir = r'C:\Users\User\Desktop\Again\dogscats\valid'
+val_cat = ['cats','dogs']
+
+
+for val_category in val_cat:
+    val_folder = os.path.join(val_dir, val_category)
+    val_label = val_cat.index(val_category)
+    for val_image in os.listdir(val_folder):
+        val_image_path = os.path.join(val_folder, val_image)
+        val_image_array = cv2.imread(val_image_path)
+        val_image_array = cv2.resize(val_image_array,(100,100))
+        validation.append([val_image_array, val_label])
+       
+valx = []
+valy = []
+
+for val_features, val_labels in validation:
+    valx.append(val_features)
+    valy.append(val_labels)
+
+valx = np.array(valx)
+valy = np.array(valy)
+
+valx = valx/255
+
+
+
+        
+
+# %%
+valx.shape
+
+# %% [markdown]
+# Início do Treinamento(Abandonado = +60h)
+
+# %%
+history = network.fit(  
+    datagen.flow(x, y, batch_size=32),
+    steps_per_epoch = len(x/32),
+    epochs = 20,
+    validation_data=(valx,valy)
+)
+
+
+# %% [markdown]
+# Início do treinamento(+-12 horas)
+
+# %%
+history = network.fit(x, y, epochs=15, validation_split=0.1)
+
+# %% [markdown]
+# Verificação da taxa de validação para dados fora do banco de dados inicial
+
+# %%
+network.evaluate(valx,valy)
+
+# %% [markdown]
+# Teste Manual da capacidade de Predição
+
+# %%
+idx2 = random.randint(0, len(valx))
+plt.imshow(valx[idx2])
+plt.show()
+
+y_pred = network.predict(valx[idx2,:].reshape(1,100,100,3))
+if(y_pred > 0.5):
+    print("Dog")
+else:
+    print("Cat")
+
+# %% [markdown]
+# Gráfico realizando a análise da evolução do sistema
+
+# %%
+
+acc = np.asarray(history.history['accuracy'])
+val_acc = np.asarray(history.history['val_accuracy'])
+epochs = np.asarray(range(len(acc)))
+pyplot.plot(epochs,acc,'r',label='Training accuracy')
+pyplot.plot(epochs,val_acc,'b',label='validation accuracy')
+pyplot.title('Training and accuracy')
+pyplot.xlabel('Epochs')
+pyplot.ylabel('Accuracy')
+pyplot.legend()
+print(max(val_acc))
+pyplot.show()
+
+
